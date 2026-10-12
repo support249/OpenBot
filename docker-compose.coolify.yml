@@ -9,6 +9,7 @@
 #   - At least 8GB RAM on VPS (this stack uses ~3GB, leaving room for other apps)
 #
 # COOLIFY MAGIC VARIABLES (auto-generated if not set):
+#   SERVICE_URL_SERVER            - Full public URL with scheme (https://your-domain.com)
 #   SERVICE_PASSWORD_POSTGRES     - Database password
 #   SERVICE_PASSWORD_COMPUTER     - Computer token (COMPUTER_TOKEN)
 #   SERVICE_PASSWORD_SUPERVISOR   - Supervisor token (SUPERVISOR_TOKEN)
@@ -102,11 +103,12 @@ services:
       KEY_ENCRYPTION_KEY: ${SERVICE_BASE64_ENCRYPTION}
       BETTER_AUTH_SECRET: ${SERVICE_BASE64_AUTHSECRET}
 
-      # Public URL - Coolify provides SERVICE_FQDN_SERVER automatically
-      BETTER_AUTH_URL: ${SERVICE_FQDN_SERVER:-http://localhost:3001}
-      OPENBOT_PUBLIC_URL: ${SERVICE_FQDN_SERVER:-http://localhost:3001}
-      OPENBOT_APP_URL: ${SERVICE_FQDN_SERVER:-http://localhost:3001}
-      TRUSTED_ORIGINS: ${SERVICE_FQDN_SERVER:-http://localhost:3001}
+      # Public URL - Coolify provides SERVICE_URL_SERVER as full https URL
+      # (SERVICE_FQDN_SERVER is bare hostname without scheme, which fails URL validation)
+      BETTER_AUTH_URL: ${SERVICE_URL_SERVER:-http://localhost:3001}
+      OPENBOT_PUBLIC_URL: ${SERVICE_URL_SERVER:-http://localhost:3001}
+      OPENBOT_APP_URL: ${SERVICE_URL_SERVER:-http://localhost:3001}
+      TRUSTED_ORIGINS: ${SERVICE_URL_SERVER:-http://localhost:3001}
 
       # Authentication - single user mode for initial setup, configure OAuth after
       OPENBOT_SINGLE_USER: ${OPENBOT_SINGLE_USER:-true}
