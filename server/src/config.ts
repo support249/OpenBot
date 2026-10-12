@@ -125,11 +125,14 @@ export type AuthConfig = {
 };
 
 /**
- * The providers this deployment can actually sign somebody in with.
+ * The OAuth providers this deployment can actually sign somebody in with.
  *
  * Ordered, and deliberately not alphabetically: this is the order the buttons appear in, and it is
  * fixed here rather than left to object key order so the sign-in screen cannot change shape because
  * of how a configuration happened to be written.
+ *
+ * NOTE: This returns only OAuth providers, not email/password. Use {@link hasAuthProvider} to check
+ * if ANY authentication method is configured.
  */
 export function configuredAuthProviders(
   auth: AuthConfig | undefined,
@@ -140,6 +143,22 @@ export function configuredAuthProviders(
   if (auth.microsoft) providers.push("microsoft");
   if (auth.okta) providers.push("okta");
   return providers;
+}
+
+/**
+ * Whether this deployment has any authentication method configured.
+ *
+ * This includes OAuth providers (Google, Microsoft, Okta) AND email/password authentication.
+ * Use this to determine if sign-in is available at all.
+ */
+export function hasAuthProvider(auth: AuthConfig | undefined): boolean {
+  if (!auth) return false;
+  return (
+    Boolean(auth.google) ||
+    Boolean(auth.microsoft) ||
+    Boolean(auth.okta) ||
+    Boolean(auth.emailPassword)
+  );
 }
 
 export type ManagedAgentConfig = {
@@ -491,7 +510,7 @@ function singleUserAllowed(
   const published = reachable.filter((value) => reachOf(value) === "public");
   if (published.length > 0) {
     throw new Error(
-      `OPENBOT_SINGLE_USER admits every request as one administrator with no sign-in, so it cannot be combined with an address the public internet reaches: ${published.join(", ")}. Configure GOOGLE_OAUTH_*, MICROSOFT_OAUTH_* or OKTA_OAUTH_* with BETTER_AUTH_SECRET and BETTER_AUTH_URL, or serve it somewhere only you reach.`,
+      `OPENBOT_SINGLE_USER admits every request as one administrator with no sign-in, so it cannot be combined with an address the public internet reaches: ${published.join(", ")}. Configure GOOGLE_OAUTH_*, MICROSOFT_OAUTH_*, OKTA_OAUTH_*, or EMAIL_PASSWORD_AUTH=true with BETTER_AUTH_SECRET and BETTER_AUTH_URL, or serve it somewhere only you reach.`,
     );
   }
 
@@ -1354,7 +1373,7 @@ export function loadConfig(
      */
     singleUser:
       !organizationAuthUrl &&
-      singleUserAllowed(environment, configuredAuthProviders(auth).length > 0),
+      singleUserAllowed(environment, hasAuthProvider(auth)),
     accessibility: accessibilityEnabled(environment),
     generativeUi: generativeUiEnabled(environment),
     selfHostBanner: selfHostBannerEnabled(environment),

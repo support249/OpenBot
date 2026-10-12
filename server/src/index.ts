@@ -412,32 +412,38 @@ const identityProviderStore = createIdentityProviderStore(database);
  * store that receives those rows has to exist before anything can sign in.
  */
 const signInAuditStore = createAuditStore(database);
-const auth: AuthService | undefined = config.organizationAuthUrl
-  ? createOrganizationAuth({
-      authorityUrl: config.organizationAuthUrl,
-      materializeUser: organizationUserStore(database),
-    })
-  : config.auth
-    ? createAuth(
-        config,
-        database,
-        (email) => peopleStore.isRevoked(email),
-        signInAuditStore,
-      )
-    : undefined;
-
 /*
- * Bootstrap the initial admin user when email/password auth is enabled.
- *
- * This creates the admin user from INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD if they don't
- * already exist. Runs before the server starts accepting requests, so the admin is available for
- * the first sign-in.
+ * Create the auth service. When email/password auth is enabled, we need to bootstrap the initial
+ * admin user before the server starts, which requires the full betterAuth instance.
  */
-if (auth && config.auth?.emailPassword) {
-  await bootstrapInitialAdmin(auth, database, {
-    initialAdminEmail: config.auth.emailPassword.initialAdminEmail,
-    initialAdminPassword: config.auth.emailPassword.initialAdminPassword,
+let auth: AuthService | undefined;
+if (config.organizationAuthUrl) {
+  auth = createOrganizationAuth({
+    authorityUrl: config.organizationAuthUrl,
+    materializeUser: organizationUserStore(database),
   });
+} else if (config.auth) {
+  const betterAuthInstance = createAuth(
+    config,
+    database,
+    (email) => peopleStore.isRevoked(email),
+    signInAuditStore,
+  );
+  auth = betterAuthInstance;
+
+  /*
+   * Bootstrap the initial admin user when email/password auth is enabled.
+   *
+   * This creates the admin user from INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD if they don't
+   * already exist. Runs before the server starts accepting requests, so the admin is available for
+   * the first sign-in.
+   */
+  if (config.auth.emailPassword) {
+    await bootstrapInitialAdmin(betterAuthInstance, database, {
+      initialAdminEmail: config.auth.emailPassword.initialAdminEmail,
+      initialAdminPassword: config.auth.emailPassword.initialAdminPassword,
+    });
+  }
 }
 
 // Each computer is pushed its network policy on the way to the action that woke it, because a
@@ -3296,7 +3302,7 @@ if (config.singleUser) {
   console.warn(
     "No identity provider is configured, so every request is treated as " +
       `${DEV_ACTOR.email} (administrator). Configure GOOGLE_OAUTH_*, ` +
-      "MICROSOFT_OAUTH_* or OKTA_OAUTH_* before anybody else can reach this.",
+      "MICROSOFT_OAUTH_*, OKTA_OAUTH_*, or EMAIL_PASSWORD_AUTH=true before anybody else can reach this.",
   );
 }
 

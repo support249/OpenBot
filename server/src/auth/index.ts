@@ -186,7 +186,9 @@ export function createAuth(
 ) {
   const authConfig = config.auth;
   if (!authConfig) {
-    throw new Error("No identity provider is configured.");
+    throw new Error(
+      "No identity provider is configured. Set GOOGLE_OAUTH_*, MICROSOFT_OAUTH_*, OKTA_OAUTH_*, or EMAIL_PASSWORD_AUTH=true.",
+    );
   }
 
   /*
