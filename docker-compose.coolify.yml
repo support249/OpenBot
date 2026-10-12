@@ -1,0 +1,316 @@
+# OpenBot on Coolify v4 (Docker Compose build pack)
+#
+# Deploy this file as a Docker Compose resource in Coolify. One public HTTP entry (server:3001),
+# everything else internal. Coolify's Traefik routes your domain to the server service.
+#
+# REQUIREMENTS:
+#   - Coolify v4 with Docker Compose build pack
+#   - A domain pointed at your Coolify instance
+#   - At least 8GB RAM on VPS (this stack uses ~3GB, leaving room for other apps)
+#
+# COOLIFY MAGIC VARIABLES (auto-generated if not set):
+#   SERVICE_PASSWORD_POSTGRES     - Database password
+#   SERVICE_PASSWORD_COMPUTER     - Computer token (COMPUTER_TOKEN)
+#   SERVICE_PASSWORD_SUPERVISOR   - Supervisor token (SUPERVISOR_TOKEN)
+#   SERVICE_PASSWORD_AGENT        - Managed agent token (MANAGED_AGENT_TOKEN)
+#   SERVICE_PASSWORD_WORKER       - Worker shared secret (WORKER_SHARED_SECRET)
+#   SERVICE_PASSWORD_TOOLTOKEN    - Agent tool callback token (AGENT_TOOL_TOKEN)
+#   SERVICE_BASE64_ENCRYPTION     - Key encryption key (32 bytes base64)
+#   SERVICE_BASE64_AUTHSECRET     - Better Auth secret (32 bytes base64)
+#
+# USER-PROVIDED (set in Coolify environment):
+#   OPENAI_API_KEY                - Your model provider API key (DeepSeek, OpenAI, etc.)
+#   OPENAI_BASE_URL               - API endpoint (https://api.deepseek.com for DeepSeek)
+#   BOT_MODEL                     - Model name (deepseek-chat, gpt-4o, etc.)
+#   INTELLIGENCE_API_KEY          - CopilotKit Intelligence key (required)
+#   INITIAL_ADMIN_EMAILS          - Admin email addresses, comma-separated
+#
+# See docs/deploy-coolify.md for full setup instructions.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # =============================================================================
+  # DATABASE
+  # =============================================================================
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openbot
+      POSTGRES_USER: openbot
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES:-changeme}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openbot -d openbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - data
+    mem_limit: 512m
+    logging: *default-logging
+
+  # =============================================================================
+  # MIGRATIONS (one-shot, runs before server starts)
+  # =============================================================================
+  migrate:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: ${SERVER_IMAGE:-openbot-server:latest}
+    command: ["bun", "x", "drizzle-kit", "migrate", "--config=drizzle.config.ts"]
+    environment:
+      DATABASE_URL: postgres://openbot:${SERVICE_PASSWORD_POSTGRES:-changeme}@postgres:5432/openbot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - data
+    mem_limit: 512m
+    logging: *default-logging
+
+  # =============================================================================
+  # API SERVER + WEB APP (the one public service)
+  # =============================================================================
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: ${SERVER_IMAGE:-openbot-server:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+
+      # Database
+      DATABASE_URL: postgres://openbot:${SERVICE_PASSWORD_POSTGRES:-changeme}@postgres:5432/openbot
+
+      # Security keys (Coolify auto-generates SERVICE_BASE64_* and SERVICE_PASSWORD_*)
+      KEY_ENCRYPTION_KEY: ${SERVICE_BASE64_ENCRYPTION}
+      BETTER_AUTH_SECRET: ${SERVICE_BASE64_AUTHSECRET}
+
+      # Public URL - Coolify provides SERVICE_FQDN_SERVER automatically
+      BETTER_AUTH_URL: ${SERVICE_FQDN_SERVER:-http://localhost:3001}
+      OPENBOT_PUBLIC_URL: ${SERVICE_FQDN_SERVER:-http://localhost:3001}
+      OPENBOT_APP_URL: ${SERVICE_FQDN_SERVER:-http://localhost:3001}
+      TRUSTED_ORIGINS: ${SERVICE_FQDN_SERVER:-http://localhost:3001}
+
+      # Authentication - single user mode for initial setup, configure OAuth after
+      OPENBOT_SINGLE_USER: ${OPENBOT_SINGLE_USER:-true}
+      INITIAL_ADMIN_EMAILS: ${INITIAL_ADMIN_EMAILS:-}
+      # Uncomment and configure for production OAuth:
+      # GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      # GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      # MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID:-}
+      # MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET:-}
+
+      # CopilotKit Intelligence (required)
+      INTELLIGENCE_API_URL: ${INTELLIGENCE_API_URL:-https://api.intelligence.copilotkit.ai}
+      INTELLIGENCE_GATEWAY_WS_URL: ${INTELLIGENCE_GATEWAY_WS_URL:-wss://realtime.intelligence.copilotkit.ai}
+      INTELLIGENCE_API_KEY: ${INTELLIGENCE_API_KEY:-}
+
+      # Model provider (DeepSeek, OpenAI, Anthropic, etc.)
+      # For DeepSeek: OPENAI_BASE_URL=https://api.deepseek.com BOT_MODEL=deepseek-chat
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      BOT_PROVIDER: ${BOT_PROVIDER:-openai}
+      BOT_MODEL: ${BOT_MODEL:-}
+
+      # Computer/Browser settings
+      AGENT_COMPUTER_URL: http://agent-computer:4100
+      COMPUTER_TOKEN: ${SERVICE_PASSWORD_COMPUTER}
+      COMPUTER_SUPERVISOR_URL: http://supervisor:4300
+      SUPERVISOR_TOKEN: ${SERVICE_PASSWORD_SUPERVISOR}
+
+      # Managed Bot endpoint
+      MANAGED_AGENT_AG_UI_URL: http://agent-langgraph:4201/ag-ui
+      MANAGED_AGENT_TOKEN: ${SERVICE_PASSWORD_AGENT}
+
+      # Worker/routines
+      WORKER_SHARED_SECRET: ${SERVICE_PASSWORD_WORKER}
+
+      # Tool callback
+      AGENT_TOOL_TOKEN: ${SERVICE_PASSWORD_TOOLTOKEN}
+      OPENBOT_TOOL_URL: http://server:3001/api/agent-tools/call
+
+      # Stall timeout
+      AGENT_STALL_TIMEOUT_MS: "60000"
+    networks:
+      - default
+      - data
+      - computers
+    mem_limit: 768m
+    logging: *default-logging
+    # Coolify routes your domain to this service via Traefik labels
+    labels:
+      - "coolify.managed=true"
+
+  # =============================================================================
+  # SUPERVISOR (manages per-bot computer containers)
+  # =============================================================================
+  supervisor:
+    build:
+      context: .
+      dockerfile: supervisor/Dockerfile
+    image: ${SUPERVISOR_IMAGE:-openbot-supervisor:latest}
+    restart: unless-stopped
+    environment:
+      PORT: "4300"
+      SUPERVISOR_TOKEN: ${SERVICE_PASSWORD_SUPERVISOR}
+      COMPUTER_TOKEN: ${SERVICE_PASSWORD_COMPUTER}
+      COMPUTER_BROWSER_MODE: ${COMPUTER_BROWSER_MODE:-headless}
+      COMPUTER_IMAGE: ${COMPUTER_IMAGE:-openbot-agent-computer:latest}
+      # Namespace for per-bot containers/volumes - Coolify may prefix this
+      COMPUTER_NAMESPACE: ${COMPOSE_PROJECT_NAME:-openbot}
+      # Network for per-bot computers to reach the server
+      # Coolify prefixes network names with project name, adjust if needed
+      COMPUTER_NETWORK: ${COMPOSE_PROJECT_NAME:-openbot}_computers
+      # Memory constraints for spawned computers
+      COMPUTER_MAX_BROWSERS: ${COMPUTER_MAX_BROWSERS:-2}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"await fetch('http://localhost:4300/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - default
+    security_opt:
+      - label=disable
+    mem_limit: 128m
+    logging: *default-logging
+
+  # =============================================================================
+  # AGENT COMPUTER (shared browser for all bots)
+  # =============================================================================
+  agent-computer:
+    build:
+      context: .
+      dockerfile: agent-computer/Dockerfile
+    image: ${COMPUTER_IMAGE:-openbot-agent-computer:latest}
+    restart: unless-stopped
+    environment:
+      COMPUTER_TOKEN: ${SERVICE_PASSWORD_COMPUTER}
+      COMPUTER_BROWSER_MODE: ${COMPUTER_BROWSER_MODE:-headless}
+      # Low browser count for memory-constrained VPS
+      COMPUTER_MAX_BROWSERS: ${COMPUTER_MAX_BROWSERS:-2}
+      COMPUTER_BROWSER_IDLE_MS: ${COMPUTER_BROWSER_IDLE_MS:-1800000}
+    volumes:
+      - agent-workspace:/workspace
+      - agent-profiles:/profiles
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"await fetch('http://localhost:4100/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - computers
+    mem_limit: 1g
+    logging: *default-logging
+
+  # =============================================================================
+  # AGENT BOT (proof-of-concept, OpenAI only)
+  # =============================================================================
+  agent-bot:
+    build:
+      context: .
+      dockerfile: agent-bot/Dockerfile
+    image: ${BOT_IMAGE:-openbot-agent-bot:latest}
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      MANAGED_AGENT_TOKEN: ${SERVICE_PASSWORD_AGENT}
+      BOT_MODEL: ${AGENT_BOT_MODEL:-${BOT_MODEL:-}}
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"await fetch('http://localhost:4200/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - default
+    mem_limit: 256m
+    logging: *default-logging
+
+  # =============================================================================
+  # AGENT LANGGRAPH (framework Bot, multi-provider support)
+  # =============================================================================
+  agent-langgraph:
+    build:
+      context: .
+      dockerfile: agent-langgraph/Dockerfile
+    image: ${LANGGRAPH_IMAGE:-openbot-agent-langgraph:latest}
+    restart: unless-stopped
+    environment:
+      BOT_PROVIDER: ${BOT_PROVIDER:-openai}
+      MANAGED_AGENT_TOKEN: ${SERVICE_PASSWORD_AGENT}
+      # Model keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      # Model settings
+      BOT_MODEL: ${BOT_MODEL:-}
+      BOT_RESPONSES_API: ${BOT_RESPONSES_API:-false}
+      BOT_REASONING_EFFORT: ${BOT_REASONING_EFFORT:-}
+      # Tool callback - reaches server inside the network
+      OPENBOT_TOOL_URL: http://server:3001/api/agent-tools/call
+      AGENT_TOOL_TOKEN: ${SERVICE_PASSWORD_TOOLTOKEN}
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"await fetch('http://localhost:4201/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - default
+    mem_limit: 256m
+    logging: *default-logging
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  # Default network for service-to-service communication
+  default:
+    name: ${COMPOSE_PROJECT_NAME:-openbot}_default
+
+  # Database network - isolated from bot computers
+  data:
+    name: ${COMPOSE_PROJECT_NAME:-openbot}_data
+
+  # Network for bot computers to reach the server
+  # Per-bot computers spawned by supervisor join this network
+  computers:
+    name: ${COMPOSE_PROJECT_NAME:-openbot}_computers
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  postgres-data:
+    name: ${COMPOSE_PROJECT_NAME:-openbot}_postgres-data
+  agent-workspace:
+    name: ${COMPOSE_PROJECT_NAME:-openbot}_agent-workspace
+  agent-profiles:
+    name: ${COMPOSE_PROJECT_NAME:-openbot}_agent-profiles
