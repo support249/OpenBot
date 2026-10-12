@@ -56,6 +56,21 @@ requires full URLs with scheme for `BETTER_AUTH_URL`, so we use `SERVICE_URL_SER
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `INTELLIGENCE_API_KEY` | CopilotKit Intelligence API key | `cpk_...` |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth client ID | `123...apps.googleusercontent.com` |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth client secret | `GOCSPX-...` |
+| `INITIAL_ADMIN_EMAILS` | Admin email addresses (comma-separated) | `admin@example.com` |
+
+### Google OAuth Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Create a new OAuth 2.0 Client ID (Web application type)
+3. Configure the following:
+   - **Authorized JavaScript origins:** `https://your-domain.com`
+   - **Authorized redirect URIs:** `https://your-domain.com/api/auth/callback/google`
+
+For example, if your domain is `openbot.optimator.ai`:
+- JavaScript origin: `https://openbot.optimator.ai`
+- Redirect URI: `https://openbot.optimator.ai/api/auth/callback/google`
 
 ### Model Provider Configuration
 
@@ -88,8 +103,8 @@ BOT_MODEL=claude-sonnet-4-5
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENBOT_SINGLE_USER` | `true` | Single admin mode (no OAuth required) |
-| `INITIAL_ADMIN_EMAILS` | - | Admin email addresses (comma-separated) |
+| `OPENBOT_SINGLE_USER` | `false` | Single admin mode (refused on public domains) |
+| `SIGNIN_ALLOWED_EMAIL_DOMAINS` | - | Restrict sign-in to specific domains (comma-separated) |
 | `COMPUTER_MAX_BROWSERS` | `2` | Max concurrent browsers (memory tradeoff) |
 | `COMPUTER_BROWSER_MODE` | `headless` | Browser mode (`headless` or `headed`) |
 
