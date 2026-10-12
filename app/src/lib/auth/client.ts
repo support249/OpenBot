@@ -2,7 +2,9 @@ import { ssoClient } from "@better-auth/sso/client";
 import { createAuthClient } from "better-auth/react";
 import type { AuthProviderId } from "./queries";
 
-export const authClient = createAuthClient({ plugins: [ssoClient()] });
+export const authClient = createAuthClient({
+  plugins: [ssoClient()],
+});
 
 /** What each provider is called on the button, since none of them are called by their id. */
 const PROVIDER_NAMES: Record<AuthProviderId, string> = {
@@ -80,5 +82,44 @@ export async function signInWithEmailDomain(
       result.error.message ||
         "No identity provider is registered for that address.",
     );
+  }
+}
+
+/** What an email/password sign-in attempt came back with. */
+type EmailPasswordResult = { error?: { message?: string } | null };
+
+/**
+ * Sign in with email and password.
+ *
+ * Injectable for testing: the Better Auth client is a proxy that cannot be replaced on an instance.
+ */
+export async function signInWithEmailPassword(
+  email: string,
+  password: string,
+  start: (input: {
+    email: string;
+    password: string;
+    callbackURL: string;
+  }) => Promise<EmailPasswordResult> = (input) =>
+    (
+      authClient as unknown as {
+        signIn: {
+          email: (i: {
+            email: string;
+            password: string;
+            callbackURL: string;
+          }) => Promise<EmailPasswordResult>;
+        };
+      }
+    ).signIn.email(input),
+) {
+  const result = await start({
+    email,
+    password,
+    callbackURL: window.location.origin,
+  });
+
+  if (result.error) {
+    throw new Error(result.error.message || "Could not sign in.");
   }
 }

@@ -88,7 +88,7 @@ import {
   recordAuditEvent,
 } from "./audit";
 import { startRetentionSweeps } from "./audit-retention";
-import { createAuth } from "./auth";
+import { bootstrapInitialAdmin, createAuth } from "./auth";
 import { DEV_ACTOR, initializeDevActorUser } from "./auth/dev-actor";
 import type { AuthService } from "./auth/guards";
 import { createRoleRepository } from "./auth/guards";
@@ -425,6 +425,21 @@ const auth: AuthService | undefined = config.organizationAuthUrl
         signInAuditStore,
       )
     : undefined;
+
+/*
+ * Bootstrap the initial admin user when email/password auth is enabled.
+ *
+ * This creates the admin user from INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD if they don't
+ * already exist. Runs before the server starts accepting requests, so the admin is available for
+ * the first sign-in.
+ */
+if (auth && config.auth?.emailPassword) {
+  await bootstrapInitialAdmin(auth, database, {
+    initialAdminEmail: config.auth.emailPassword.initialAdminEmail,
+    initialAdminPassword: config.auth.emailPassword.initialAdminPassword,
+  });
+}
+
 // Each computer is pushed its network policy on the way to the action that woke it, because a
 // computer refuses every connection until one arrives (see `withPolicyPushOnWake`).
 const computerProvider = config.computer

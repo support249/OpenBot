@@ -40,6 +40,13 @@ export type AuthProviderId = "google" | "microsoft" | "okta";
 export type SignInOptions = {
   providers: AuthProviderId[];
   /**
+   * Whether email/password authentication is enabled.
+   *
+   * When true, the sign-in screen shows an email/password form. Sign-up is disabled;
+   * only accounts created by an administrator can sign in.
+   */
+  emailPassword: boolean;
+  /**
    * Whether any enterprise identity provider is registered.
    *
    * A boolean, not a list: naming them would tell anybody who loads the sign-in page which companies
@@ -58,12 +65,14 @@ async function signInOptions(): Promise<SignInOptions> {
     await client("/api/capabilities", { fallback: "Could not load sign-in" })
   ).json()) as {
     authProviders?: AuthProviderId[];
+    emailPassword?: boolean;
     ssoConfigured?: boolean;
     ssoRequired?: boolean;
   };
 
   return {
     providers: body.authProviders ?? [],
+    emailPassword: body.emailPassword === true,
     sso: body.ssoConfigured === true,
     ssoRequired: body.ssoRequired === true,
   };

@@ -21,18 +21,23 @@
 #
 # USER-PROVIDED (set in Coolify environment):
 #   INTELLIGENCE_API_KEY          - CopilotKit Intelligence key (required)
-#   GOOGLE_OAUTH_CLIENT_ID        - Google OAuth client ID (required for sign-in)
-#   GOOGLE_OAUTH_CLIENT_SECRET    - Google OAuth client secret (required for sign-in)
-#   INITIAL_ADMIN_EMAILS          - Admin email addresses, comma-separated (required)
+#
+# AUTHENTICATION - Choose one method:
+#
+#   EMAIL/PASSWORD (recommended for simple setups):
+#     EMAIL_PASSWORD_AUTH         - Set to "true" to enable email/password login
+#     INITIAL_ADMIN_EMAIL         - Email for the initial admin account
+#     INITIAL_ADMIN_PASSWORD      - Password for the initial admin account (min 8 chars)
+#
+#   GOOGLE OAUTH (alternative):
+#     GOOGLE_OAUTH_CLIENT_ID      - Google OAuth client ID
+#     GOOGLE_OAUTH_CLIENT_SECRET  - Google OAuth client secret
+#     INITIAL_ADMIN_EMAILS        - Admin email addresses, comma-separated
+#
+# MODEL PROVIDER:
 #   OPENAI_API_KEY                - Your model provider API key (DeepSeek, OpenAI, etc.)
 #   OPENAI_BASE_URL               - API endpoint (https://api.deepseek.com for DeepSeek)
 #   BOT_MODEL                     - Model name (deepseek-chat, gpt-4o, etc.)
-#
-# GOOGLE OAUTH SETUP:
-#   1. Go to https://console.cloud.google.com/apis/credentials
-#   2. Create OAuth 2.0 Client ID (Web application)
-#   3. Authorized JavaScript origins: https://openbot.optimator.ai
-#   4. Authorized redirect URIs: https://openbot.optimator.ai/api/auth/callback/google
 #
 # See docs/deploy-coolify.md for full setup instructions.
 
@@ -118,20 +123,22 @@ services:
       OPENBOT_APP_URL: ${SERVICE_URL_SERVER:-http://localhost:3001}
       TRUSTED_ORIGINS: ${SERVICE_URL_SERVER:-http://localhost:3001}
 
-      # Authentication - Google OAuth (required for production on public domains)
-      # Google OAuth redirect URI: https://<your-domain>/api/auth/callback/google
-      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
-      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
-      # At least one admin email required when OAuth is configured
-      INITIAL_ADMIN_EMAILS: ${INITIAL_ADMIN_EMAILS:-}
-      # Single-user mode is refused on public domains; set to false for OAuth
+      # Authentication - Email/Password (recommended for simple setups)
+      # Set EMAIL_PASSWORD_AUTH=true to enable email/password login (no OAuth required)
+      EMAIL_PASSWORD_AUTH: ${EMAIL_PASSWORD_AUTH:-true}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+
+      # Authentication - Google OAuth (alternative to email/password)
+      # To use Google OAuth instead, set EMAIL_PASSWORD_AUTH=false and configure:
+      # GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      # GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      # INITIAL_ADMIN_EMAILS: ${INITIAL_ADMIN_EMAILS:-}
+
+      # Single-user mode is refused on public domains
       OPENBOT_SINGLE_USER: ${OPENBOT_SINGLE_USER:-false}
       # Optional: restrict sign-in to specific email domains (comma-separated)
       SIGNIN_ALLOWED_EMAIL_DOMAINS: ${SIGNIN_ALLOWED_EMAIL_DOMAINS:-}
-      # Microsoft OAuth (alternative to Google)
-      # MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID:-}
-      # MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET:-}
-      # MICROSOFT_OAUTH_TENANT_ID: ${MICROSOFT_OAUTH_TENANT_ID:-}
 
       # CopilotKit Intelligence (required)
       INTELLIGENCE_API_URL: ${INTELLIGENCE_API_URL:-https://api.intelligence.copilotkit.ai}

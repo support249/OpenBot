@@ -11,6 +11,7 @@ import {
   providerName,
   signInWith,
   signInWithEmailDomain,
+  signInWithEmailPassword,
 } from "@/lib/auth/client";
 import { appConfig } from "@/lib/generated/application-config";
 import {
@@ -43,11 +44,14 @@ export const Route = createFileRoute("/sign")({
 function SignScreen() {
   // Which provider is being opened, rather than whether one is: with three buttons, a single
   // boolean would put "Opening…" on all of them.
-  const [opening, setOpening] = useState<AuthProviderId | "sso" | null>(null);
+  const [opening, setOpening] = useState<
+    AuthProviderId | "sso" | "email" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const { data: options } = useQuery(authProvidersQueryOptions());
   const providers = options?.providers ?? [];
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   /**
    * Sign in through whichever identity provider covers this address.
@@ -85,6 +89,26 @@ function SignScreen() {
           : `Could not start ${providerName(provider)} sign-in.`,
       );
       setOpening(null);
+    }
+  }
+
+  async function handleEmailPasswordSignIn(submission: React.FormEvent) {
+    submission.preventDefault();
+    setError(null);
+    setOpening("email");
+
+    try {
+      await signInWithEmailPassword(email, password);
+      // On success, better-auth redirects to the callback URL, which reloads the page.
+      // If we're still here after a moment, something didn't work.
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Could not sign in with that email and password.",
+      );
+      setOpening(null);
+      setPassword("");
     }
   }
 
@@ -166,7 +190,39 @@ function SignScreen() {
               Your organization requires single sign-on.
             </p>
           ) : null}
-          {providers.length > 0 && !options?.ssoRequired ? (
+          {/* Email/password form when enabled */}
+          {options?.emailPassword ? (
+            <form className="flex flex-col gap-3" onSubmit={handleEmailPasswordSignIn}>
+              <Input
+                autoComplete="email"
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="Email"
+                required
+                type="email"
+                value={email}
+              />
+              <Input
+                autoComplete="current-password"
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Password"
+                required
+                type="password"
+                value={password}
+              />
+              <Button
+                className="h-10 w-full tracking-tight"
+                disabled={
+                  opening !== null ||
+                  email.trim().length === 0 ||
+                  password.length === 0
+                }
+                size="lg"
+                type="submit"
+              >
+                {opening === "email" ? "Signing in…" : "Sign in"}
+              </Button>
+            </form>
+          ) : providers.length > 0 && !options?.ssoRequired ? (
             providerButtons
           ) : options?.sso || options?.ssoRequired ? null : (
             <p className="text-center text-sm text-muted-foreground">

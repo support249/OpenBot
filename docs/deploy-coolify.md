@@ -56,11 +56,38 @@ requires full URLs with scheme for `BETTER_AUTH_URL`, so we use `SERVICE_URL_SER
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `INTELLIGENCE_API_KEY` | CopilotKit Intelligence API key | `cpk_...` |
+
+### Authentication Setup
+
+OpenBot supports two authentication methods. Choose one:
+
+#### Option 1: Email/Password (Recommended for Simple Setups)
+
+This is the simplest option—no OAuth configuration required.
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `EMAIL_PASSWORD_AUTH` | Set to `true` to enable | `true` |
+| `INITIAL_ADMIN_EMAIL` | Email for the initial admin account | `admin@example.com` |
+| `INITIAL_ADMIN_PASSWORD` | Password for the initial admin (min 8 chars) | `secure-password-here` |
+
+**Important notes:**
+- Sign-up is disabled; only accounts created by administrators can sign in
+- The initial admin is created automatically on first startup
+- Additional users can be created through the admin API
+
+#### Option 2: Google OAuth
+
+For organizations that prefer OAuth-based sign-in.
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `EMAIL_PASSWORD_AUTH` | Set to `false` to disable email/password | `false` |
 | `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth client ID | `123...apps.googleusercontent.com` |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth client secret | `GOCSPX-...` |
 | `INITIAL_ADMIN_EMAILS` | Admin email addresses (comma-separated) | `admin@example.com` |
 
-### Google OAuth Setup
+**Google OAuth Setup:**
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
 2. Create a new OAuth 2.0 Client ID (Web application type)
@@ -234,8 +261,10 @@ openssl rand -base64 32
 
 ## Production Checklist
 
-- [ ] Set `OPENBOT_SINGLE_USER=false` and configure OAuth
-- [ ] Set `INITIAL_ADMIN_EMAILS` to your admin addresses
+- [ ] Set `OPENBOT_SINGLE_USER=false`
+- [ ] Configure authentication (email/password OR OAuth):
+  - Email/password: Set `EMAIL_PASSWORD_AUTH=true`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`
+  - OAuth: Set `EMAIL_PASSWORD_AUTH=false`, configure OAuth provider, set `INITIAL_ADMIN_EMAILS`
 - [ ] Configure a model provider (OPENAI_API_KEY or alternatives)
 - [ ] Verify all health endpoints respond
 - [ ] Test browser actions work end-to-end

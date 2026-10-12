@@ -111,6 +111,17 @@ export type AuthConfig = {
   microsoft?: OAuthClient & { tenantId: string };
   /** Okta is an OIDC provider rather than a named one, so it is identified by its issuer. */
   okta?: OAuthClient & { issuer: string };
+  /**
+   * Email + password authentication. When enabled, sign-up is disabled and only accounts created
+   * by an administrator can sign in.
+   */
+  emailPassword?: {
+    enabled: true;
+    /** Email for the initial admin account, created at startup if missing. */
+    initialAdminEmail: string;
+    /** Password for the initial admin account (only used when creating the account). */
+    initialAdminPassword: string;
+  };
 };
 
 /**
@@ -706,20 +717,55 @@ function namesNoDirectory(tenantId: string | undefined): boolean {
  * provider with no session secret to mint against, or a session secret configured with no provider
  * to use it.
  */
+function emailPasswordAuth(
+  environment: Environment,
+): AuthConfig["emailPassword"] | undefined {
+  const enabled =
+    optional(environment, "EMAIL_PASSWORD_AUTH") === "true" ||
+    optional(environment, "EMAIL_PASSWORD_AUTH") === "1";
+  if (!enabled) return undefined;
+
+  const initialAdminEmail = optional(environment, "INITIAL_ADMIN_EMAIL");
+  const initialAdminPassword = optional(environment, "INITIAL_ADMIN_PASSWORD");
+
+  if (!initialAdminEmail) {
+    throw new Error(
+      "EMAIL_PASSWORD_AUTH is enabled but INITIAL_ADMIN_EMAIL is not set. Set it to bootstrap the first administrator account.",
+    );
+  }
+  if (!initialAdminPassword) {
+    throw new Error(
+      "EMAIL_PASSWORD_AUTH is enabled but INITIAL_ADMIN_PASSWORD is not set. Set it to bootstrap the first administrator account.",
+    );
+  }
+  if (initialAdminPassword.length < 8) {
+    throw new Error(
+      "INITIAL_ADMIN_PASSWORD must be at least 8 characters long.",
+    );
+  }
+
+  return {
+    enabled: true,
+    initialAdminEmail,
+    initialAdminPassword,
+  };
+}
+
 function authConfig(
   environment: Environment,
   google: OAuthClient | undefined,
 ): AuthConfig | undefined {
   const microsoft = microsoftAuth(environment);
   const okta = oktaAuth(environment);
+  const emailPassword = emailPasswordAuth(environment);
 
   const secret = optional(environment, "BETTER_AUTH_SECRET");
   const baseUrl = url(environment, "BETTER_AUTH_URL");
 
-  if (!google && !microsoft && !okta) {
+  if (!google && !microsoft && !okta && !emailPassword) {
     if (secret || baseUrl) {
       throw new Error(
-        "BETTER_AUTH_SECRET or BETTER_AUTH_URL is set but no identity provider is. Configure GOOGLE_OAUTH_*, MICROSOFT_OAUTH_* or OKTA_OAUTH_*, or unset both",
+        "BETTER_AUTH_SECRET or BETTER_AUTH_URL is set but no identity provider is. Configure GOOGLE_OAUTH_*, MICROSOFT_OAUTH_*, OKTA_OAUTH_*, or EMAIL_PASSWORD_AUTH=true, or unset both",
       );
     }
     return undefined;
@@ -741,11 +787,12 @@ function authConfig(
    * deployment that configures sign-in without it admits everybody as a plain user, shows nobody
    * the admin screens, and offers no way to promote anyone. Refusing at start-up is the only cheap
    * moment to catch that; the expensive one is after the first person has signed in.
+   *
+   * For email/password auth, INITIAL_ADMIN_EMAIL is used instead (the account being bootstrapped).
    */
-  const initialAdminEmails = commaSeparated(
-    environment,
-    "INITIAL_ADMIN_EMAILS",
-  );
+  const initialAdminEmails = emailPassword
+    ? [emailPassword.initialAdminEmail]
+    : commaSeparated(environment, "INITIAL_ADMIN_EMAILS");
   if (initialAdminEmails.length === 0) {
     throw new Error(
       "Sign-in requires INITIAL_ADMIN_EMAILS naming at least one administrator. Nothing else grants the role, and no screen can promote somebody once the deployment is running",
@@ -830,6 +877,7 @@ function authConfig(
     ...(google ? { google } : {}),
     ...(microsoft ? { microsoft } : {}),
     ...(okta ? { okta } : {}),
+    ...(emailPassword ? { emailPassword } : {}),
   };
 }
 

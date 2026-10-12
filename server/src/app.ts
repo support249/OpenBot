@@ -477,6 +477,13 @@ export function createApp(
        */
       authProviders: configuredAuthProviders(config.auth),
       /*
+       * Whether email/password authentication is enabled.
+       *
+       * When true, the sign-in screen shows an email/password form. Sign-up is disabled;
+       * only accounts created by an administrator can sign in.
+       */
+      emailPassword: Boolean(config.auth?.emailPassword),
+      /*
        * Whether any enterprise identity provider has been registered.
        *
        * A count, not a list. The sign-in screen only needs to know whether to offer the email box

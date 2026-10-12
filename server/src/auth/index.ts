@@ -5,7 +5,7 @@ import { scim } from "@better-auth/scim";
 import { sso } from "@better-auth/sso";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
-import { genericOAuth, okta } from "better-auth/plugins";
+import { admin, genericOAuth, okta } from "better-auth/plugins";
 import { eq, sql } from "drizzle-orm";
 import { createEnterpriseStore } from "../admin/settings-store";
 import type { AuditEventInput, AuditStore } from "../audit";
@@ -257,6 +257,11 @@ export function createAuth(
         );
       },
     }),
+    /*
+     * The admin plugin provides auth.api.createUser, which is used to bootstrap the initial admin
+     * when email/password auth is enabled. It also provides user management APIs.
+     */
+    admin(),
   ];
 
   return betterAuth({
@@ -367,6 +372,22 @@ export function createAuth(
       encryptOAuthTokens: true,
     },
     plugins,
+    /*
+     * Email and password authentication, when enabled.
+     *
+     * Sign-up is disabled: only accounts created by an administrator (or bootstrapped from
+     * environment variables) can sign in. This prevents public registration while keeping
+     * password-based authentication available.
+     */
+    ...(authConfig.emailPassword
+      ? {
+          emailAndPassword: {
+            enabled: true,
+            disableSignUp: true,
+            requireEmailVerification: false,
+          },
+        }
+      : {}),
     socialProviders: {
       ...(authConfig.google ? { google: authConfig.google } : {}),
       ...(authConfig.microsoft
@@ -552,4 +573,73 @@ export function createAuth(
       },
     },
   });
+}
+
+/** The auth instance type, for use in bootstrapping. */
+export type Auth = ReturnType<typeof createAuth>;
+
+/**
+ * Bootstrap the initial admin user from environment variables.
+ *
+ * Called at startup when email/password auth is enabled. Creates the admin user if they don't
+ * already exist, using the email and password from INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD.
+ * The user is created with the admin role.
+ *
+ * This runs after migrations and before the server starts accepting requests, so the admin is
+ * available for the first sign-in.
+ */
+export async function bootstrapInitialAdmin(
+  auth: Auth,
+  database: Database,
+  config: {
+    initialAdminEmail: string;
+    initialAdminPassword: string;
+  },
+): Promise<void> {
+  const { initialAdminEmail, initialAdminPassword } = config;
+
+  const [existing] = await database
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, initialAdminEmail))
+    .limit(1);
+
+  if (existing) {
+    console.log(
+      JSON.stringify({
+        type: "initial-admin-exists",
+        email: initialAdminEmail,
+        note: "Initial admin user already exists, skipping creation",
+      }),
+    );
+    return;
+  }
+
+  try {
+    await auth.api.createUser({
+      body: {
+        email: initialAdminEmail,
+        password: initialAdminPassword,
+        name: "Admin",
+        role: "admin",
+      },
+    });
+
+    console.log(
+      JSON.stringify({
+        type: "initial-admin-created",
+        email: initialAdminEmail,
+        note: "Initial admin user created from environment variables",
+      }),
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        type: "initial-admin-creation-failed",
+        email: initialAdminEmail,
+        error: String(error),
+      }),
+    );
+    throw error;
+  }
 }
