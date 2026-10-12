@@ -5,13 +5,15 @@ import { scim } from "@better-auth/scim";
 import { sso } from "@better-auth/sso";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
-import { admin, genericOAuth, okta } from "better-auth/plugins";
+import { hashPassword } from "better-auth/crypto";
+import { genericOAuth, okta } from "better-auth/plugins";
 import { eq, sql } from "drizzle-orm";
 import { createEnterpriseStore } from "../admin/settings-store";
 import type { AuditEventInput, AuditStore } from "../audit";
 import { recordAuditEvent } from "../audit";
 import type { DeploymentConfig } from "../config";
 import type { Database } from "../db/client";
+import { randomUUID } from "node:crypto";
 import {
   accounts,
   scimConnectionBindings,
@@ -259,11 +261,6 @@ export function createAuth(
         );
       },
     }),
-    /*
-     * The admin plugin provides auth.api.createUser, which is used to bootstrap the initial admin
-     * when email/password auth is enabled. It also provides user management APIs.
-     */
-    admin(),
   ];
 
   return betterAuth({
@@ -577,21 +574,20 @@ export function createAuth(
   });
 }
 
-/** The auth instance type, for use in bootstrapping. */
-export type Auth = ReturnType<typeof createAuth>;
-
 /**
  * Bootstrap the initial admin user from environment variables.
  *
  * Called at startup when email/password auth is enabled. Creates the admin user if they don't
  * already exist, using the email and password from INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD.
- * The user is created with the admin role.
+ * The user is created with the admin role via the app's existing seedRole mechanism.
  *
  * This runs after migrations and before the server starts accepting requests, so the admin is
  * available for the first sign-in.
+ *
+ * IMPORTANT: This function never crashes the server. Errors are logged but not thrown.
+ * This is idempotent - if the user already exists, it's a no-op.
  */
 export async function bootstrapInitialAdmin(
-  auth: Auth,
   database: Database,
   config: {
     initialAdminEmail: string;
@@ -599,38 +595,60 @@ export async function bootstrapInitialAdmin(
   },
 ): Promise<void> {
   const { initialAdminEmail, initialAdminPassword } = config;
-
-  const [existing] = await database
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, initialAdminEmail))
-    .limit(1);
-
-  if (existing) {
-    console.log(
-      JSON.stringify({
-        type: "initial-admin-exists",
-        email: initialAdminEmail,
-        note: "Initial admin user already exists, skipping creation",
-      }),
-    );
-    return;
-  }
+  const normalizedEmail = initialAdminEmail.toLowerCase().trim();
 
   try {
-    await auth.api.createUser({
-      body: {
-        email: initialAdminEmail,
-        password: initialAdminPassword,
+    const [existing] = await database
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, normalizedEmail))
+      .limit(1);
+
+    if (existing) {
+      console.log(
+        JSON.stringify({
+          type: "initial-admin-exists",
+          email: normalizedEmail,
+          note: "Initial admin user already exists, skipping creation",
+        }),
+      );
+      return;
+    }
+
+    const userId = randomUUID();
+    const now = new Date();
+
+    const passwordHash = await hashPassword(initialAdminPassword);
+
+    await database.transaction(async (tx) => {
+      await tx.insert(users).values({
+        id: userId,
+        email: normalizedEmail,
         name: "Admin",
-        role: "admin",
-      },
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await tx.insert(accounts).values({
+        id: randomUUID(),
+        accountId: userId,
+        providerId: "credential",
+        issuer: "local:credential",
+        userId: userId,
+        password: passwordHash,
+        createdAt: now,
+        updatedAt: now,
+      });
     });
+
+    await seedRole(database, userId, normalizedEmail, [normalizedEmail]);
 
     console.log(
       JSON.stringify({
         type: "initial-admin-created",
-        email: initialAdminEmail,
+        email: normalizedEmail,
+        userId,
         note: "Initial admin user created from environment variables",
       }),
     );
@@ -638,10 +656,10 @@ export async function bootstrapInitialAdmin(
     console.error(
       JSON.stringify({
         type: "initial-admin-creation-failed",
-        email: initialAdminEmail,
+        email: normalizedEmail,
         error: String(error),
+        note: "Server will continue without initial admin. Create the user manually or check the configuration.",
       }),
     );
-    throw error;
   }
 }

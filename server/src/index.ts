@@ -413,8 +413,7 @@ const identityProviderStore = createIdentityProviderStore(database);
  */
 const signInAuditStore = createAuditStore(database);
 /*
- * Create the auth service. When email/password auth is enabled, we need to bootstrap the initial
- * admin user before the server starts, which requires the full betterAuth instance.
+ * Create the auth service.
  */
 let auth: AuthService | undefined;
 if (config.organizationAuthUrl) {
@@ -423,27 +422,26 @@ if (config.organizationAuthUrl) {
     materializeUser: organizationUserStore(database),
   });
 } else if (config.auth) {
-  const betterAuthInstance = createAuth(
+  auth = createAuth(
     config,
     database,
     (email) => peopleStore.isRevoked(email),
     signInAuditStore,
   );
-  auth = betterAuthInstance;
+}
 
-  /*
-   * Bootstrap the initial admin user when email/password auth is enabled.
-   *
-   * This creates the admin user from INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD if they don't
-   * already exist. Runs before the server starts accepting requests, so the admin is available for
-   * the first sign-in.
-   */
-  if (config.auth.emailPassword) {
-    await bootstrapInitialAdmin(betterAuthInstance, database, {
-      initialAdminEmail: config.auth.emailPassword.initialAdminEmail,
-      initialAdminPassword: config.auth.emailPassword.initialAdminPassword,
-    });
-  }
+/*
+ * Bootstrap the initial admin user when email/password auth is enabled.
+ *
+ * This creates the admin user from INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD if they don't
+ * already exist. Runs before the server starts accepting requests, so the admin is available for
+ * the first sign-in. This never crashes - errors are logged but the server continues.
+ */
+if (config.auth?.emailPassword) {
+  await bootstrapInitialAdmin(database, {
+    initialAdminEmail: config.auth.emailPassword.initialAdminEmail,
+    initialAdminPassword: config.auth.emailPassword.initialAdminPassword,
+  });
 }
 
 // Each computer is pushed its network policy on the way to the action that woke it, because a
